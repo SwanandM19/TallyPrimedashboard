@@ -1,156 +1,74 @@
-# Owner Business Dashboard
+# Mantri Constructions – Cashflow dashboard (Next.js + TypeScript)
 
-A Next.js + Supabase dashboard that receives accounting data via API and displays
-an owner-facing business overview. This is Phase 1: the API endpoint, database,
-and dashboard only. The Tally sync agent that will POST real data to this API
-is a separate, later phase.
+The same screens as the Lovable app (employee page `/`, admin review page `/admin`, six tabs OPPL / Prerana / PPPL / MCPL / APEX / RA, Print to PDF, Submit Cashflow, notifications, review and approval) – rebuilt on **plain Next.js (App Router) + TypeScript + Tailwind + Supabase**. Nothing from the Lovable framework (TanStack Start, Vite, Cloudflare, Lovable Cloud) is used any more.
+
+New: the **“Actual Taken”** column of the OPPL, PPPL, MCPL and APEX sheets is filled automatically from Tally. The flow is
 
 ```
-TallyPrime (Phase 2, not built yet)
-  -> Tally Sync Agent (Phase 2, not built yet)
-  -> HTTPS POST
-  -> Next.js API on Vercel        <-- this repo
-  -> Supabase PostgreSQL          <-- this repo
-  -> Next.js Owner Dashboard      <-- this repo
+Tally (read-only)  →  Agent on the server PC  →  Supabase  →  this dashboard
 ```
 
-## Tech stack
+---
 
-Next.js (App Router) + TypeScript + Tailwind CSS + Supabase (PostgreSQL).
+## 1. One-time set-up in Supabase
 
-## Local setup
+1. Open your project in Supabase → **SQL Editor** → New query. Paste and **Run**, one file at a time:
+   1. `supabase/01-cashflow-tables.sql` – **only if the project is new** (it has no `cashflow_reports` table yet). If you re-use the Supabase project the Lovable app used, skip this file.
+   2. `supabase/02-tally-tables.sql` – always.
+   3. `supabase/03-set-ingest-secret.sql` – first replace `PASTE-YOUR-OWN-LONG-SECRET-HERE` with a long random password of your own (24+ letters/numbers, no spaces). **Write it down: the agent needs the same secret.**
+2. **Authentication → Users → Add user**: create the employee login(s) and the admin login (tick *Auto Confirm User*). The admin’s e-mail must be the same as `ADMIN_EMAIL` below.
+3. **Authentication → Sign In / Providers → Email**: turn **off** “Allow new users to sign up”. Anybody who can sign in can read the Tally totals, so only people you create should be able to.
+4. **Project Settings → API**: you will need *Project URL*, the *anon / publishable* key and the *service_role / secret* key.
 
-```bash
+## 2. Put the keys in the dashboard
+
+1. Copy `.env.example` to a new file named `.env.local` (same folder).
+2. Fill it in:
+
+| Name | Where it comes from | Secret? |
+|---|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase → Project Settings → API → Project URL | no |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | the **anon / publishable** key | no (public by design) |
+| `SUPABASE_SERVICE_ROLE_KEY` | the **service_role / secret** key | **YES** – only on the server / Vercel, never in the agent, never in chat |
+| `ADMIN_EMAIL` | the admin’s e-mail (default `admin123@gmail.com`) | no |
+| `RESEND_API_KEY`, `RESEND_FROM`, `REPORT_RECIPIENT` | optional – e-mail when a sheet is submitted. Leave `RESEND_API_KEY` empty to switch e-mail off | yes |
+| `NEXT_PUBLIC_SITE_URL` | the address of the website (used in the e-mail link) | no |
+
+3. Run it:
+
+```
 npm install
-cp .env.example .env.local   # then fill in the values, see below
-npm run dev
+npm run dev          (open http://localhost:3000)
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+To publish: `npm run build`, or import the folder into Vercel and add **the same names/values** under *Project → Settings → Environment Variables* (do **not** upload `.env.local`).
 
-## Environment variables
+Open `/api/health` on your site to check that the server can see the settings (it shows only yes/no, never the values).
 
-Set these in `.env.local` for local development, and in the Vercel project
-settings for deployment.
+## 3. Get the Tally numbers in
 
-| Variable | Where it's used | Notes |
-| --- | --- | --- |
-| `NEXT_PUBLIC_SUPABASE_URL` | Server | Your Supabase project URL. |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Server | Supabase anon/public key. Currently unused by any browser code, but reserved for future client-side reads. |
-| `SUPABASE_SERVICE_ROLE_KEY` | Server only | Used by the API routes and the dashboard's server-side data fetching to read/write `tally_transactions` and `tally_sync_logs`, bypassing Row Level Security. **Never** expose this to the browser. |
-| `TALLY_SYNC_API_KEY` | Server only | Shared secret the Tally sync agent must send as `Authorization: Bearer <key>` when calling `/api/tally/sync`. |
+The agent is the second zip (`MantriTallyAgent`). On the server PC: fill in `config.json`, run `1-CHECK-TALLY-FIRST.bat`, `2-EXTRACT-FROM-TALLY.bat`, `3-SEND-TO-SUPABASE.bat`. Then open the dashboard and press **Refresh** in the “Actual Taken from Tally” bar.
 
-`.env.local` is already covered by `.gitignore` (via the `.env*` rule) and will
-never be committed.
+## 4. How “Actual Taken” is filled
 
-## Supabase setup
+* Each sheet has a date range (default = the range in its heading, for example JUL TO SEP-2026). Change it with the date boxes or the quick buttons.
+* **Receipts** = credit side of *Receipt* vouchers; **Payments** = debit side of *Payment* vouchers (cash basis). Cancelled and optional vouchers are ignored. Amounts are shown in Rs. Lakhs.
+* The rules that decide which ledger goes to which row are in the table `cashflow_row_map` (Supabase → Table Editor). Seeded rules marked `confirmed = false` show a **T?** badge – check them once, then set `confirmed = true`. A ledger is counted in only one row (lowest `priority` that matches), so nothing is counted twice.
+* **T** = filled from Tally. If you type a figure yourself it is never overwritten; a small “Tally 12.34” button lets you switch back.
+* The line “In Tally but not counted in any row” lists ledgers that no row picks up.
+* Opening balances (section A) stay manual. Prerana and RA are project sheets with no Tally rules yet. OPPL has no rules yet (Omega Premises had no vouchers after 1-Apr-2026 in the Tally that was checked).
 
-1. Create a Supabase project.
-2. Open the SQL editor and run the migration in
-   [`supabase/migrations/0001_init.sql`](supabase/migrations/0001_init.sql). It creates:
-   - `tally_transactions` — the synced accounting records, with a unique
-     index on `external_id` so re-sending the same record is a no-op update
-     instead of a duplicate insert.
-   - `tally_sync_logs` — one row per sync request, so the dashboard can show
-     "Last Sync" and you can audit whether syncs are succeeding.
-   - Row Level Security is enabled on both tables with no public policies —
-     all reads and writes go through the server using the service role key.
-3. Copy the Project URL and the `anon` / `service_role` keys from
-   Project Settings → API into your environment variables.
+## 5. What changed compared with the Lovable app
 
-## API endpoints
+* Framework: TanStack Start / Vite / Cloudflare → Next.js App Router, TypeScript, Tailwind 4.
+* Server functions → route handlers in `app/api/cashflow/*` (same rules: employee/admin checks, backups trigger, feedback, approvals). They read the signed-in user’s token, so row-level security still applies.
+* Auth/session: plain `@supabase/supabase-js` in the browser. The designated admin e-mail is given its admin role on first use (uses the service-role key on the server only).
+* E-mail: Lovable’s gateway → Resend directly (optional).
+* Hard-coded admin e-mail, recipient and admin link → environment variables.
+* UI, colours, print layout and table behaviour are copied unchanged.
+* Added: Tally bar, T / T? badges, `supabase/` SQL, `/api/health`.
 
-### `GET /api/health`
+## 6. Honest notes
 
-Checks connectivity to Supabase.
-
-```bash
-curl http://localhost:3000/api/health
-```
-
-```json
-{ "status": "ok", "database": "connected" }
-```
-
-### `POST /api/tally/sync`
-
-Accepts one or more transactions and upserts them into `tally_transactions`,
-using `external_id` for idempotency (sending the same `external_id` twice
-updates the existing row instead of creating a duplicate). Requires
-`Authorization: Bearer <TALLY_SYNC_API_KEY>`; every call is recorded in
-`tally_sync_logs`.
-
-```bash
-curl -X POST http://localhost:3000/api/tally/sync \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_TALLY_SYNC_API_KEY" \
-  -d '{
-    "transactions": [
-      {
-        "external_id": "TEST-001",
-        "transaction_type": "sale",
-        "amount": 50000,
-        "invoice_no": "TEST-INV-001",
-        "party_name": "Test Customer",
-        "transaction_date": "2026-09-09",
-        "description": "Test sale"
-      }
-    ]
-  }'
-```
-
-Or use the bundled test script, which sends the same mock payload:
-
-```bash
-TALLY_SYNC_API_KEY=YOUR_TALLY_SYNC_API_KEY npm run test:sync
-
-# against a deployed instance:
-TALLY_SYNC_API_KEY=YOUR_TALLY_SYNC_API_KEY SYNC_URL=https://YOUR-DOMAIN.vercel.app/api/tally/sync npm run test:sync
-```
-
-Responses:
-
-- `200` — `{ "success": true, "recordsReceived": 1, "recordsInserted": 1, "message": "..." }`
-- `401` — missing/incorrect `Authorization` header
-- `400` — malformed JSON, missing `transactions`, empty batch, or an invalid transaction (bad type/amount/date)
-- `500` — Supabase/unexpected error (no internal details are leaked to the client)
-
-## Dashboard
-
-The dashboard at `/` is a server component that reads directly from Supabase
-(no client-side API calls). It shows:
-
-- Last sync time and records synced, from `tally_sync_logs`.
-- KPI cards for today's sales/purchases/receipts/payments, computed from
-  `tally_transactions` for the current date **in IST**, regardless of the
-  server's or browser's local timezone.
-- Outstanding Receivables / Payables as "Not available yet" — these require
-  ledger balance data not yet synced.
-- A table of the 20 most recent transactions.
-
-## Verifying the full pipeline
-
-1. `npm run dev`
-2. `curl http://localhost:3000/api/health` → expect `{"status":"ok","database":"connected"}`
-3. Send the test transaction (curl or `npm run test:sync`).
-4. Reload `/` — Today's Sales should show ₹50,000, and Last Sync should be populated.
-5. Re-send the exact same request — `recordsReceived` stays 1, and the dashboard
-   total does not double (the row is updated in place via `external_id`, not duplicated).
-
-## Deploying to Vercel
-
-1. Push this repository to GitHub.
-2. Import the repository into Vercel.
-3. In Project Settings → Environment Variables, add all four variables from
-   `.env.example` with your real Supabase project's values.
-4. Deploy.
-5. Test `https://YOUR-DOMAIN.vercel.app/api/health`.
-6. Test `https://YOUR-DOMAIN.vercel.app/api/tally/sync` with the curl command
-   above (swap in the deployed URL), then check the dashboard.
-
-## What's not built yet (Phase 2)
-
-The TallyPrime integration itself — the Windows sync agent, Tally XML/TDL,
-scheduled/automatic synchronization, outstanding-balance calculations, and
-any reporting (email/WhatsApp) — is intentionally out of scope for this phase.
-This repo only proves: **external client → Vercel API → Supabase → dashboard**.
+* The code was type-checked in a sandbox without internet access to npm, so it has not been compiled with the real packages. If `npm run build` prints an error, send me the text and I will fix it.
+* The SQL files were run and tested on a real PostgreSQL 16 (ingest, wrong secret refused, day replacement, actuals matching). Supabase-specific parts (Auth, `auth.uid()`) were simulated.

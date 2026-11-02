@@ -1,26 +1,15 @@
-import { NextResponse } from "next/server";
-import { createServiceClient } from "@/lib/supabase/service";
+export const dynamic = 'force-dynamic'
 
+/** Open /api/health in the browser to see which settings the server can see. It shows only yes/no, never a value. */
 export async function GET() {
-  try {
-    const supabase = createServiceClient();
-    // A plain (non-HEAD) query is used deliberately: Supabase returns error
-    // bodies only on GET responses, so a HEAD request (head: true) cannot
-    // reveal problems like a missing table — it silently reports success.
-    const { error } = await supabase.from("tally_transactions").select("id").limit(1);
-
-    if (error) {
-      return NextResponse.json(
-        { status: "error", database: "disconnected" },
-        { status: 503 }
-      );
-    }
-
-    return NextResponse.json({ status: "ok", database: "connected" });
-  } catch {
-    return NextResponse.json(
-      { status: "error", database: "disconnected" },
-      { status: 503 }
-    );
+  const has = (name: string) => Boolean(process.env[name] && process.env[name]!.trim())
+  const checks = {
+    NEXT_PUBLIC_SUPABASE_URL: has('NEXT_PUBLIC_SUPABASE_URL'),
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: has('NEXT_PUBLIC_SUPABASE_ANON_KEY'),
+    SUPABASE_SERVICE_ROLE_KEY: has('SUPABASE_SERVICE_ROLE_KEY'),
+    ADMIN_EMAIL: has('ADMIN_EMAIL'),
+    RESEND_API_KEY_optional: has('RESEND_API_KEY'),
   }
+  const ok = checks.NEXT_PUBLIC_SUPABASE_URL && checks.NEXT_PUBLIC_SUPABASE_ANON_KEY && checks.SUPABASE_SERVICE_ROLE_KEY
+  return Response.json({ ok, checks })
 }
