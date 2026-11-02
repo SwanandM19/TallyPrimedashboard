@@ -1,7 +1,7 @@
 'use client'
 
 import { getSupabase } from '@/lib/supabase/client'
-import type { TallyByRow } from '@/lib/cashflow-review'
+import type { LedgerOption, TallyByRow } from '@/lib/cashflow-review'
 import type { SheetId } from '@/lib/cashflow-sheets'
 
 /** The four sheets whose "Actual Taken" column can be filled from Tally. Prerana and RA stay manual. */
@@ -23,6 +23,8 @@ export type TallyLoad = {
   byRow: TallyByRow
   unmatched: UnmatchedLedger[]
   status: CompanyStatus[]
+  /** Ledgers for the row dropdowns. Undefined when 04-ledger-picker.sql has not been run yet. */
+  options?: LedgerOption[]
   loadedAt: number
 }
 
@@ -70,10 +72,11 @@ type ActualRow = { row_id: string; flow: string; amount_lakhs: number | string; 
 /** Reads the figures from Supabase as the signed-in user (row level security applies). */
 export async function loadTally(sheet: SheetId, period: Period): Promise<TallyLoad> {
   const supabase = getSupabase()
-  const [actuals, unmatched, status] = await Promise.all([
+  const [actuals, unmatched, status, options] = await Promise.all([
     supabase.rpc('tally_actuals', { p_sheet: sheet, p_from: period.from, p_to: period.to }),
     supabase.rpc('tally_unmatched', { p_sheet: sheet, p_from: period.from, p_to: period.to }),
     supabase.rpc('tally_status'),
+    supabase.rpc('tally_ledger_options', { p_sheet: sheet, p_from: period.from, p_to: period.to }),
   ])
   if (actuals.error) throw new Error(actuals.error.message)
   const byRow: TallyByRow = {}
@@ -84,6 +87,21 @@ export async function loadTally(sheet: SheetId, period: Period): Promise<TallyLo
     byRow,
     unmatched: unmatched.error ? [] : ((unmatched.data ?? []) as UnmatchedLedger[]).map((u) => ({ ...u, amount_lakhs: Number(u.amount_lakhs) })),
     status: status.error ? [] : ((status.data ?? []) as CompanyStatus[]),
+    // If the SQL file 04-ledger-picker.sql has not been run, this call fails: then the dropdowns are simply not shown.
+    options: options.error
+      ? undefined
+      : ((options.data ?? []) as LedgerOption[]).map((o) => ({ ...o, amount_lakhs: Number(o.amount_lakhs) })),
     loadedAt: Date.now(),
   }
+}
+
+/** Saves "these ledgers, and only these, count in this row" (signed-in users only; see 04-ledger-picker.sql). */
+export async function saveRowLedgers(sheet: SheetId, rowId: string, flow: 'receipt' | 'payment', ledgers: string[]): Promise<void> {
+  const { error } = await getSupabase().rpc('cashflow_set_row_ledgers', {
+    p_sheet: sheet,
+    p_row_id: rowId,
+    p_flow: flow,
+    p_ledgers: ledgers,
+  })
+  if (error) throw new Error(error.message)
 }

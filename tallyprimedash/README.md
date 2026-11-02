@@ -16,6 +16,7 @@ Tally (read-only)  →  Agent on the server PC  →  Supabase  →  this dashboa
    1. `supabase/01-cashflow-tables.sql` – **only if the project is new** (it has no `cashflow_reports` table yet). If you re-use the Supabase project the Lovable app used, skip this file.
    2. `supabase/02-tally-tables.sql` – always.
    3. `supabase/03-set-ingest-secret.sql` – first replace `PASTE-YOUR-OWN-LONG-SECRET-HERE` with a long random password of your own (24+ letters/numbers, no spaces). **Write it down: the agent needs the same secret.**
+   4. `supabase/04-ledger-picker.sql` – turns on the “Select ledgers…” dropdown under every row (see section 5). Run it after file 02. Safe to run again.
 2. **Authentication → Users → Add user**: create the employee login(s) and the admin login (tick *Auto Confirm User*). The admin’s e-mail must be the same as `ADMIN_EMAIL` below.
 3. **Authentication → Sign In / Providers → Email**: turn **off** “Allow new users to sign up”. Anybody who can sign in can read the Tally totals, so only people you create should be able to.
 4. **Project Settings → API**: you will need *Project URL*, the *anon / publishable* key and the *service_role / secret* key.
@@ -72,3 +73,22 @@ The agent is the second zip (`MantriTallyAgent`). On the server PC: fill in `con
 
 * The code was type-checked in a sandbox without internet access to npm, so it has not been compiled with the real packages. If `npm run build` prints an error, send me the text and I will fix it.
 * The SQL files were run and tested on a real PostgreSQL 16 (ingest, wrong secret refused, day replacement, actuals matching). Supabase-specific parts (Auth, `auth.uid()`) were simulated.
+
+## 5. Choosing the ledgers of a row (the dropdown under every row name)
+
+Under the name of every row of the OPPL, PPPL, MCPL and APEX sheets there is a small dropdown. It starts as **“Select ledgers…”**.
+
+1. Press it. A list opens with **every ledger of that company that the agent sent** (receipts for income rows, payments for expense rows), largest first, with its amount in the dates chosen above the sheet. Use the search box to find a ledger.
+2. Tick the ledgers that belong in the row and press **Save**.
+3. The row’s **Actual Taken** now shows the total of the ticked ledgers, read from Supabase (T badge). The dropdown label shows the first ledger and “+N more”.
+
+Things to know:
+* The row names on the sheet are **not** used for matching and can stay exactly as they are. Only the ticked ledgers (and the older automatic rules) decide the figure.
+* A ledger counts in **one row only**. If you tick a ledger that already counts in another row, it moves here (the list tells you where it was).
+* Ledgers that count through an automatic rule show as ticked and greyed. To move one, tick it in the row where it should be.
+* A ticked ledger always wins over an automatic rule. Un-tick it and press Save to hand it back to the rules.
+* Everybody who can sign in can change these choices, and they apply to everyone (they are saved in Supabase, table `cashflow_row_ledgers`). Each change records who made it.
+* The list shows the ledgers of the whole year that was sent, not only the chosen dates, so a ledger with no entry in the dates shows “-”.
+* If the dropdowns do not appear, `04-ledger-picker.sql` has not been run yet; the Tally bar says so.
+* “In Tally but not counted in any row” (bold, in the Tally bar) lists ledgers that no row has picked up yet.
+

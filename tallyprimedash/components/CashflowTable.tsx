@@ -3,6 +3,7 @@
 import { useCashflowReview, markedClass, type TallyCell } from "@/lib/cashflow-review";
 import { useState, useCallback, useMemo, useEffect } from "react";
 import { Plus, Trash2 } from "lucide-react";
+import { LedgerPicker } from "./LedgerPicker";
 import {
   Dialog,
   DialogContent,
@@ -346,10 +347,17 @@ export function EditableCell({
 }
 
 export function CashflowTable({ config }: { config: TableConfig; tabType?: "oppl" }) {
-  const { initialRows, onRowsChange, markedCells, tally } = useCashflowReview();
+  const { initialRows, onRowsChange, markedCells, tally, ledgerOptions, onPickLedgers, periodLabel } = useCashflowReview();
   const [rows, setRows] = useState<Row[]>((initialRows as Row[] | undefined) ?? config.initialRows);
   useEffect(() => { onRowsChange?.(rows); }, [rows, onRowsChange]);
   const computed = computeTotals(rows, config);
+
+  // Rows in the receipt sections take receipts from Tally, every other row takes payments.
+  const receiptKeys = config.receiptSections ?? ["A", "B"];
+  const flowOf = (sectionKey?: string): "receipt" | "payment" =>
+    sectionKey && receiptKeys.includes(sectionKey) ? "receipt" : "payment";
+  // row id -> the name written on the sheet (the dropdown shows it when a ledger already counts in another row)
+  const rowNames = useMemo(() => Object.fromEntries(rows.map((r) => [r.id, r.particulars])), [rows]);
 
   // Fill "Actual Taken" from Tally. A figure that somebody typed by hand is never overwritten.
   useEffect(() => {
@@ -491,9 +499,22 @@ export function CashflowTable({ config }: { config: TableConfig; tabType?: "oppl
                   <td className="px-4 py-2 text-center text-muted-foreground border border-border">{row.srNo}</td>
                   <td className={`px-4 py-2 border border-border ${isSummary ? "font-semibold" : ""}${markedClass(markedCells, row.id, "particulars")}`}>
                     {row.isEditable ? (
-                      <input type="text" className="bg-transparent w-full outline-none focus:border-b focus:border-primary/30"
-                        value={row.particulars} onChange={(e) => updateParticulars(row.id, e.target.value)}
-                        placeholder="Enter item name..." />
+                      <>
+                        <input type="text" className="bg-transparent w-full outline-none focus:border-b focus:border-primary/30"
+                          value={row.particulars} onChange={(e) => updateParticulars(row.id, e.target.value)}
+                          placeholder="Enter item name..." />
+                        {row.type === "item" && ledgerOptions && onPickLedgers && (
+                          <LedgerPicker
+                            rowId={row.id}
+                            rowName={row.particulars}
+                            flow={flowOf(row.sectionKey)}
+                            options={ledgerOptions}
+                            rowNames={rowNames}
+                            periodLabel={periodLabel}
+                            onSave={(ledgers) => onPickLedgers(row.id, flowOf(row.sectionKey), ledgers)}
+                          />
+                        )}
+                      </>
                     ) : row.particulars}
                   </td>
                   {(["col1", "col2", "col3"] as const).map((col) => {

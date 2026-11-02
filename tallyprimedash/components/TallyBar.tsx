@@ -100,9 +100,20 @@ export function TallyBar({
         Figures are Rs. Lakhs, cash basis: Receipt vouchers (credit side) and Payment vouchers (debit side). Opening balances are not taken from Tally. A figure you type yourself is never overwritten.
       </p>
 
+      {data && data.options === undefined && (
+        <p className="text-xs text-muted-foreground">
+          The ledger dropdown under each row is switched off. Run <code>04-ledger-picker.sql</code> once in Supabase (SQL Editor) to turn it on.
+        </p>
+      )}
+      {data && data.options !== undefined && (
+        <p className="text-xs text-muted-foreground">
+          Under each row name there is a small dropdown (it starts as “Select ledgers…”). Use it to choose which Tally ledgers count in that row.
+        </p>
+      )}
+
       {data && data.unmatched.length > 0 && (
         <details className="text-xs">
-          <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+          <summary className="cursor-pointer text-sm font-bold text-foreground hover:text-primary">
             In Tally but not counted in any row ({data.unmatched.length} ledger{data.unmatched.length === 1 ? "" : "s"}, largest first)
           </summary>
           <ul className="mt-1 grid gap-x-6 sm:grid-cols-2">

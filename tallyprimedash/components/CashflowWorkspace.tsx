@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { CashflowReviewContext } from '@/lib/cashflow-review'
 import { TABS, type SheetId } from '@/lib/cashflow-sheets'
 import { approveReport, getWorkspace, reviewReport, resolveFeedback, submitReport, type Workspace } from '@/lib/api'
-import { isTallySheet, loadTally, periodFromSubtitle, quickPeriods, type Period, type TallyLoad } from '@/lib/tally'
+import { formatDay, isTallySheet, loadTally, periodFromSubtitle, quickPeriods, saveRowLedgers, type Period, type TallyLoad } from '@/lib/tally'
 import { CashflowTable, opplConfig, ppplConfig, mcplConfig, apexConfig } from './CashflowTable'
 import { PreranaTable } from './PreranaTable'
 import { RaTable } from './RaTable'
@@ -72,6 +72,13 @@ export function CashflowWorkspace({ adminPage = false }: { adminPage?: boolean }
     return () => { cancelled = true }
   }, [user, showTally, tab, period.from, period.to, tallyReload]) // eslint-disable-line react-hooks/exhaustive-deps
   const tallyByRow = showTally ? tallyData[tab]?.byRow : undefined
+  // The ledger dropdown on every row. Hidden on the admin page and when 04-ledger-picker.sql has not been run.
+  const ledgerOptions = showTally ? tallyData[tab]?.options : undefined
+  const periodLabel = `${formatDay(period.from)} to ${formatDay(period.to)}`
+  const pickLedgers = useCallback(async (rowId: string, flow: 'receipt' | 'payment', ledgers: string[]) => {
+    await saveRowLedgers(tab, rowId, flow, ledgers)
+    setTallyReload((n) => n + 1)   // read the figures again so the row shows the new total
+  }, [tab])
   const reports = workspace?.reports ?? []
   const employeeId = reports[0]?.employee_id ?? null
   const selected = reports.find((r) => r.sheet === tab && (adminPage ? r.employee_id === employeeId : r.employee_id === user?.id))
@@ -143,7 +150,7 @@ export function CashflowWorkspace({ adminPage = false }: { adminPage?: boolean }
     <h1 className="text-center text-3xl font-bold uppercase">CASHFLOW</h1>
     <nav className="flex flex-wrap gap-2 border-b border-border items-center no-print">{TABS.map((item) => <Button key={item.id} variant="ghost" onClick={() => { setTab(item.id); setNotice('') }} className={`rounded-none border-b-2 ${tab === item.id ? 'border-primary text-primary' : 'border-transparent text-muted-foreground'}`}>{item.label}</Button>)}<Button className="ml-auto" title="Print or save as PDF" onClick={() => window.print()}><Printer />Print to PDF</Button></nav>
     {showTally && <TallyBar sheet={tab} period={period} onPeriod={(p) => setPeriods((current) => ({ ...current, [tab]: p }))} data={tallyData[tab]} loading={tallyLoading} error={tallyError} onRefresh={() => setTallyReload((n) => n + 1)} />}
-    {adminPage && !selected ? <p className="py-12 text-center text-muted-foreground">No {TABS.find((t) => t.id === tab)?.label} submission yet.</p> : <div className="print-area"><CashflowReviewContext.Provider key={sheetKey} value={{ initialRows, onRowsChange, markedCells, tally: tallyByRow }}><Sheet id={tab} /></CashflowReviewContext.Provider></div>}
+    {adminPage && !selected ? <p className="py-12 text-center text-muted-foreground">No {TABS.find((t) => t.id === tab)?.label} submission yet.</p> : <div className="print-area"><CashflowReviewContext.Provider key={sheetKey} value={{ initialRows, onRowsChange, markedCells, tally: tallyByRow, ledgerOptions, onPickLedgers: ledgerOptions ? pickLedgers : undefined, periodLabel }}><Sheet id={tab} /></CashflowReviewContext.Provider></div>}
     {adminPage ? selected && <section className="no-print space-y-3"><label htmlFor="admin-comment" className="block font-semibold">Comment for employee</label><textarea id="admin-comment" className="w-full min-h-24 border border-input bg-background p-3 rounded-md" value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Add a comment about this cashflow…" /><div className="flex flex-wrap gap-3"><Button onClick={handleApprove} disabled={busy || selectedApproved}><Check />{selectedApproved ? 'Approved' : 'Approve'}</Button><Button variant="outline" onClick={handleReview} disabled={busy}><Send />Send & notify employee</Button></div></section> : <div className="flex justify-end no-print"><Button size="lg" onClick={handleSubmit} disabled={busy}><Send />Submit Cashflow</Button></div>}
     {notice && <p role="status" className="text-sm text-muted-foreground no-print">{notice}</p>}
     <Dialog open={Boolean(submissionMessage)} onOpenChange={(open) => { if (!open) setSubmissionMessage('') }}><DialogContent><DialogHeader><DialogTitle>Cashflow submitted</DialogTitle><DialogDescription>{submissionMessage}</DialogDescription></DialogHeader><DialogFooter><Button onClick={() => setSubmissionMessage('')}>OK</Button></DialogFooter></DialogContent></Dialog>
